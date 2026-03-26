@@ -1,0 +1,138 @@
+---
+title: "Proposal for Exploratory Data Analysis of MLB Pitch Data"
+author: "Jonah Lorenzo, Nicolas Delfau, Asher Heflin"
+date: "March 2026"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(baseballr)
+library(knitr)
+library(readr)
+```
+
+## Part 1: Written Proposal
+
+  We are looking to investigate the evolution of different pitch types in the MLB in recent years as well as the success and effectiveness of these different pitches. All of us in the group are baseball fans and would like to gain greater technical insight into one of our favorite sports; we chose this topic because of our pre-existing interest in the sport. During our search for a more specific topic related to baseball, we remarked that pitching stats can be very complex and that we should attempt to produce digestible information regarding pitch types. 
+  
+  Our data comes from Statcast and FanGraphs; the Statcast dataset includes every pitch from the last 10 years, while FanGraphs provides aggregated data on “qualified” pitchers. This data was accessible using an R library, which made loading very simple. Some key variables we will include are ID, name, team, season, % of pitch type, pitch speed, spin rate, and pitch outcome. 
+  
+  We plan to explore the change in different usage rates of pitches over the past 10 years as well as how certain characteristics of each pitch, such as spin rate and speed, have changed over time. We also aim to analyze the performance of different types of pitches and their outcomes in the game scenarios, which will lead to insights regarding effectiveness of certain pitch types.
+
+## Part 2: Data Confirmation
+
+### Data Aquisition
+
+#### Statcast Pitch Data
+Statcast makes pitch data available via either a public API or a search page. A community-developed R package called "baseballr" provides functions to search the API from within an R script. API queries are limited to 25000 observations, much less than are found in a given season. This mean that many queries had to be performed and combined. The general script used to collect this data is provided here:
+```{r, eval=FALSE}
+for(year in 2017:2025){
+  start_date = sprintf("%d-03-01", year)
+  end_date = sprintf("%d-11-01", year)
+  statcast <- statcast_search_pitchers(start_date = start_date, end_date = date(start_date) + 7)
+  last_max = max(statcast$game_date)
+  while(max(statcast$game_date) < date(end_date)){
+    print(max(statcast$game_date))
+    statcast <- rbind(statcast, statcast_search_pitchers(start_date=(max(statcast$game_date)+1), end_date=(max(statcast$game_date) + 8)))
+    if(max(statcast$game_date) == last_max){
+      print("No more games found")
+      break
+    } else {
+      last_max = max(statcast$game_date)
+    }
+  }
+  write_csv(statcast, sprintf("statcast_%d.csv", year))
+}
+```
+There were some errors with this script that required manual intervention, particularly in the years 2020 and 2022. In 2020 the COVID-19 pandemic resulted in a shortened season with a delayed start, and in 2022 the MLB lockout from ongoing labor negotiations resulted in a delayed season start. For these reasons, data from these years has not yet been collected, and will require a more manual approach. Data for each year is saved in its own csv file with the name statcast_<year>.csv
+
+#### FanGraphs Data
+FanGraphs data is available on the FanGraphs website, however direct data export requires a paid membership. To get around this, we used the cURL tool to query the same API the FanGraphs web-page uses to populate the data table:
+```{sh, eval=FALSE}
+curl -o fangraphs.json "https://www.fangraphs.com/api/leaders/major-league/data?age=&pos=all&stats=pit&lg=all&qual=y&season=2025&season1=2017&startdate=&enddate=&month=0&hand=&team=0&pageitems=1000000000&pagenum=1&ind=1&rost=0&players=&type=17&postseason=&sortdir=default&sortstat=pivSB"
+```
+The output of this command was a JSON formatted file containing the data. This was then transformed into a CSV file using the following Python code:
+```{python, eval=FALSE, python.reticulate=FALSE}
+import pandas as pd
+import json
+
+with open("fangraphs.json", "r") as f:
+    data = json.load(f)
+
+frame = pd.DataFrame(data['data'])
+frame['Name'] = frame['PlayerName']
+frame['Team'] = frame['TeamName']
+frame.to_csv("fangraphs.csv")
+print(frame)
+```
+
+### Loading the Data
+
+#### Statcast
+To load the Statcast data, each year must be loaded. These can then be combined into a single dataframe using the rbind function, or left discrete.
+```{r}
+statcast <- read_csv("statcast_2017.csv") %>%
+  rbind(read_csv("statcast_2018.csv")) %>%
+  rbind(read_csv("statcast_2019.csv")) %>%
+  rbind(read_csv("statcast_2021.csv")) %>%
+  rbind(read_csv("statcast_2023.csv")) %>%
+  rbind(read_csv("statcast_2024.csv")) %>%
+  rbind(read_csv("statcast_2025.csv"))
+
+glimpse(statcast)
+```
+
+This dataset contains all pitches thrown in the MLB regular season from 2017-2025 with the exception of the 2020 and 2022 seasons. There are 4,653,637 observations at the individual pitch level.
+
+#### FanGraphs
+The FanGraphs data can be loaded from the CSV created by the afformentioned Python script.
+```{r}
+fangraphs <- read_csv("fangraphs.csv")
+glimpse(fangraphs)
+```
+
+This data contains 455 observations at the season-player level. It includes data on qualified (minimum 1.0 IP for each scheduled league game) pitchers from 2017-2025.
+
+### Variable Selection Table
+```{r echo=FALSE}
+var_selection_table <- data.frame(
+  Variable=c("game_data", "pitcher", "xMLBAMID", "release_speed", "pitch_type", "v\\<pitch_type\\> (multiple)", "\\<pitch_type\\>% (multiple)", "pfx_x", "pfx_z", "release_spin", "spin_axis"),
+  Source=c("Statcast", "Statcast", "FanGraphs", "Statcast", "Statcast", "FanGraphs", "FanGraphs", "Statcast", "Statcast", "Statcast", "Statcast"),
+  Type=c("Date", "Numeric", "Numeric", "Numeric", "Categorical", "Numeric", "Numeric", "Numeric", "Numeric", "Numeric", "Numeric"),
+  Description=c("Date of the game during which the pitch was thrown", "MLBAMID player identifier of the pitcher", "MLBAMID player identifier of the pitcher", "Speed in MPH of the pitch at the release point", "Abbreviated pitch type: FF, KC, CU, SI, CH, etc", "Average velocity of pitches with abbreviated type \\<pitch_type\\> for this player this season", "Percentage of pitches thrown of type \\<pitch_type\\> by this player this season", "Horizontal movement of pitch in feet from the catcher's perspective", "Vertical movement of pitch in feet from the catcher's perpsective", "Pitch spin rate", "The Spin Axis in the 2D X-Z plane in degrees from 0 to 360, such that 180 represents a pure backspin fastball and 0 degrees represents a pure topspin (12-6) curveball")
+)
+
+kable(var_selection_table, caption = "Variable Selection Table")
+```
+
+## Part 3: Source Review
+Verducci, Tom. “MLB’s Pitching Evolution Has Made Hitting Nearly Impossible .” SI, Sports Illustrated, 13 May 2024, www.si.com/mlb/pitching-evolution-made-hitting-nearly-impossible. 
+
+This article helps summarize the current situation in the pitchers world, and how it is affecting hitters. Pitchers have begun to construct their own pitches, like the sweeper. Pitchers also now have dedicated training mechanisms, almost laboratories, in which they can completely elevate their game by analyzing every part of their motion. Another main point is velocity, in which pitchers are now consistently throwing 98 miles per hour or more, for 5-6 innings or more, causing hitters to be reactive and not proactive to this change. This source will be useful to see the impacts on hitters of the evolution of pitchers, allowing us to see the repercussions on the opposing players that pitchers' new mechanisms are having.
+
+
+Cooper, J.J. “The Measure of a Fastball Has Changed over the Years.” College Baseball, MLB Draft, Prospects - Baseball America, 8 Nov. 2023, www.baseballamerica.com/stories/the-measure-of-a-fastball-has-changed-over-the-years/. 
+
+This source gives us a different perspective on the issue, particularly the fastball, and how even though physical gains are rising, the measuring of velocity has become more contemporary. Measuring fastballs used to be done at the plate, then mid-flight to the plate, and now are measured directly out of the hand. Science can prove that out of the hand will always be faster than over the plate due to the forces caused on the ball over the 60 feet the ball must travel. This article will allow us to research how deep the impacts of physical training are versus the new measurement systems of the velocity of pitchers.
+
+
+Napoli, Benjamin, Daniel Napoli, Anthony Napoli, Timmy Lin, Macall Robertson, Jason Machan, and Janette Baird. “The Association Between Pitch Accuracy and Batter Outcomes in Major League Baseball.” Sport Journal, July 8, 2025. https://thesportjournal.org/article/the-association-between-pitch-accuracy-and-batter-outcomes-in-major-league-baseball/.
+
+This source is a study of how pitch types and their accuracies have led to different outcomes in batters. Using the information provided in this study, we are able to have a better expectation of what our analysis should yield as this study has researched some of the topics we would like to investigate, just on a smaller scale. From this source, we can also gain understanding into the methodology behind analyzing pitch evolution, which can help us better formulate the process behind our research.
+
+
+Birnbaum, Phil. "A Guide to Sabermetric Research", n.d., https://sabr.org/sabermetrics
+
+SABR, or the Society for American Baseball Research is the leading organization in performing advanced data analytics and analysis in the context of baseball. This guide outlines the history of sabermetrics and outlines how research in this space is performed and where it is cataloged. This source is only a brief introduction into the sabermetrics space, but adds context to how researchers approach the unique issues surrounding studying baseball and its strategies.
+
+
+Hsiao, Sheng-Yen and Hu, Shiang-Hung and Lin, Ming‐Jen and Weng, Wei-Chien, Do Professional Baseball Players Play Mixed Strategies? Evidence from MLB (July 21, 2024). Available at SSRN: https://ssrn.com/abstract=4691177 or http://dx.doi.org/10.2139/ssrn.4691177 
+
+This research paper analyzes how pitchers vary their pitch mix in at-bats based on the situation. It frames the pitcher-batter interaction as a simultaneous move game, and uses game theory to evaluate the optimal mix of pitches for a player to throw. The data used by this paper is similar to the Statcast data we are employing, containing every pitch from 2015 to 2021, obtained from Statcast. In addition this paper makes use of aggregated player data from FanGraphs in their analysis, which we also seek to do.

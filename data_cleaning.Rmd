@@ -1,0 +1,57 @@
+---
+title: "Data Cleaning for MLB EDA"
+author: "Jonah Lorenzo, Nicolas Delfau, Asher Heflin"
+date: "March 2026"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(baseballr)
+library(knitr)
+library(readr)
+```
+
+Load Data:
+```{r}
+statcast <- read_csv("statcast_2017.csv") %>%
+  rbind(read_csv("statcast_2018.csv")) %>%
+  rbind(read_csv("statcast_2019.csv")) %>%
+  rbind(read_csv("statcast_2021.csv")) %>%
+  rbind(read_csv("statcast_2023.csv")) %>%
+  rbind(read_csv("statcast_2024.csv")) %>%
+  rbind(read_csv("statcast_2025.csv"))
+```
+
+Save Combined Data:
+```{r}
+write_csv(statcast, "statcast.csv")
+```
+
+Remove Unneeded Cols:
+```{r}
+statcast_clean <- statcast %>%
+  select(-matches(".*deprecated$"), -spin_dir, -umpire) %>% #Remove deprecated numbers
+  select(-matches("fielder_[0-9]")) %>% 
+  select(-matches("on_[1-3]b$")) %>%
+  select(-matches("[io]f_fielding_alignment")) %>%
+  select(-matches("delta_.*")) %>%
+  select(-matches("intercept_ball_.*")) %>%
+  select(-matches(".*_days_since_.*"), -matches(".*_days_until_.*")) %>%
+  select(-age_pit_legacy, -age_bat_legacy) %>%
+  select(-matches("api_.*")) %>%
+  select(-woba_value, -woba_denom) %>%
+  select(-sz_top,-sz_bot) %>%
+  select(-matches(".*score.*"))
+  
+statcast_clean <- statcast_clean %>%
+  drop_na(pitch_type) %>%
+  filter(game_type=="R")
+#write_csv(statcast_clean, "statcast_clean.csv")
+```
