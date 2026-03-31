@@ -12,10 +12,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-install.packages("ggh4x")
-```
-
-```{r}
 library(tidyverse)
 library(knitr)
 library(readr)
@@ -190,6 +186,120 @@ ggplot(counts, aes(x="", y=prop, fill=pitch_type)) +
         axis.text = element_blank(),
         axis.ticks = element_blank()) +
   labs(x = NULL, y = NULL)
+```
+
+
+Specific counts:
+```{r}
+specific_counts <- statcast_clean %>%
+  select(pitch_type, balls, strikes) %>%
+  filter(pitch_type == "CH"| pitch_type == "CU"| pitch_type == "FF"| pitch_type == "SI"| pitch_type == "SL"| pitch_type == "FC"| pitch_type == "ST"| pitch_type == "KC" | pitch_type == "FS") %>%
+  mutate(batting_count = paste(balls, strikes, sep = "-")) %>%
+  group_by(batting_count, pitch_type) %>%
+  summarize(count = n()) %>%
+  mutate(prop = count/sum(count)) %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SL" = "Slider",
+                             "CH" = "Changeup",
+                             "CU" = "Curveball",
+                             "SI" = "2-Seam",
+                             "KC"= "Knuckle Curve",
+                             "FC" = "Cutter",
+                             "ST" = "Sweeper",
+                             "FS" = "Splitter"))
+
+ggplot(specific_counts, aes(x="", y=prop, fill=pitch_type)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  facet_wrap(~batting_count, nrow=4) +
+  theme(panel.grid = element_blank(),
+        panel.border = element_rect(color = "black",
+                                    fill = NA,
+                                    linewidth = 1),
+        strip.background = element_blank(),
+        panel.background= element_rect(fill="gray89"),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  labs(x = NULL, y = NULL)
+
+```
+
+```{r}
+specific_counts_outcomes <- statcast_clean %>%
+  select(description, balls, strikes) %>%
+  mutate(batting_count = paste(balls, strikes, sep = "-")) %>%
+  filter(!is.na(description)) %>%
+    mutate(outcome = case_when(
+      description == "hit_into_play" ~ "Hit",
+      description == "swinging_strike" | description == "swinging_pitchout" | description == "missed_bunt" ~ "Swinging K",
+      description == "called_strike" ~ "Called Strike",
+      description == "foul" | description == "foul_bunt" | description == "bunt_foul_tip" | description == "foul_tip" | description == "foul_pitchout" ~ "Foul",
+      description == "pitchout" ~ "Pitchout",
+      description == "ball" | description == "blocked_ball" | description == "hit_by_pitch" ~ "Ball/HBP",
+      description == "swinging_strike_blocked" ~ "Dropped Swinging Strike")) %>%
+  group_by(batting_count, outcome) %>%
+  summarize(count = n()) %>%
+  mutate(prop = count/sum(count))
+
+ggplot(specific_counts_outcomes, aes(x="", y=prop, fill=outcome)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  facet_wrap(~batting_count, nrow=4) +
+  theme(panel.grid = element_blank(),
+        panel.border = element_rect(color = "black",
+                                    fill = NA,
+                                    linewidth = 1),
+        strip.background = element_blank(),
+        panel.background= element_rect(fill="gray89"),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  labs(x = NULL, y = NULL)
+
+```
+
+
+```{r}
+pitch_outcomes_with_pitch_types <- statcast_clean %>%
+  select(description, pitch_type) %>%
+  filter(pitch_type == "CH"| pitch_type == "CU"| pitch_type == "FF"| pitch_type == "SI"| pitch_type == "SL"| pitch_type == "FC"| pitch_type == "ST"| pitch_type == "KC" | pitch_type == "FS") %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SL" = "Slider",
+                             "CH" = "Changeup",
+                             "CU" = "Curveball",
+                             "SI" = "2-Seam",
+                             "KC"= "Knuckle Curve",
+                             "FC" = "Cutter",
+                             "ST" = "Sweeper",
+                             "FS" = "Splitter")) %>%
+  filter(!is.na(description)) %>%
+    mutate(outcome = case_when(
+      description == "hit_into_play" ~ "Hit",
+      description == "swinging_strike" | description == "swinging_pitchout" | description == "missed_bunt" ~ "Swinging K",
+      description == "called_strike" ~ "Called Strike",
+      description == "foul" | description == "foul_bunt" | description == "bunt_foul_tip" | description == "foul_tip" | description == "foul_pitchout" ~ "Foul",
+      description == "pitchout" ~ "Pitchout",
+      description == "ball" | description == "blocked_ball" | description == "hit_by_pitch" ~ "Ball/HBP",
+      description == "swinging_strike_blocked" ~ "Dropped Swinging Strike")) %>%
+  group_by(pitch_type, outcome) %>%
+  summarize(count = n()) %>%
+  mutate(prop = count/sum(count))
+
+ggplot(pitch_outcomes_with_pitch_types, aes(x="", y=prop, fill=outcome)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  facet_wrap(~pitch_type, nrow=3) +
+  theme(panel.grid = element_blank(),
+        panel.border = element_rect(color = "black",
+                                    fill = NA,
+                                    linewidth = 1),
+        strip.background = element_blank(),
+        panel.background= element_rect(fill="gray89"),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  labs(x = NULL, y = NULL)
+
 ```
 
 
