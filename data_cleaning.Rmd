@@ -12,21 +12,20 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+install.packages("ggh4x")
+```
+
+```{r}
 library(tidyverse)
-library(baseballr)
 library(knitr)
 library(readr)
+library(ggh4x)
+library(ggrepel)
 ```
 
 Load Data:
 ```{r}
-statcast <- read_csv("statcast_2017.csv") %>%
-  rbind(read_csv("statcast_2018.csv")) %>%
-  rbind(read_csv("statcast_2019.csv")) %>%
-  rbind(read_csv("statcast_2021.csv")) %>%
-  rbind(read_csv("statcast_2023.csv")) %>%
-  rbind(read_csv("statcast_2024.csv")) %>%
-  rbind(read_csv("statcast_2025.csv"))
+statcast <- read_csv("statcast.csv")
 ```
 
 Save Combined Data:
@@ -55,3 +54,143 @@ statcast_clean <- statcast_clean %>%
   filter(game_type=="R")
 #write_csv(statcast_clean, "statcast_clean.csv")
 ```
+
+Fastball speed by age:
+```{r}
+pitch_names <- c(
+  "FF" = "4-Seam",
+  "FC" = "Cutter",
+  "FS" = "Splitter",
+  "SI" = "2-Seam/Sinker"
+)
+
+fastballs <- statcast_clean %>%
+  select(pitch_type, age_pit, release_speed, pitch_name) %>%
+  filter(pitch_type == "CH"| pitch_type == "CU"| pitch_type == "FF"| pitch_type == "SI"| pitch_type == "SL"| pitch_type == "FC"| pitch_type == "ST"| pitch_type == "KC" | pitch_type == "FS") %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SL" = "Slider",
+                             "CH" = "Changeup",
+                             "CU" = "Curveball",
+                             "SI" = "2-Seam",
+                             "KC"= "Knuckle Curve",
+                             "FC" = "Cutter",
+                             "ST" = "Sweeper",
+                             "FS" = "Splitter")) %>%
+  group_by(age_pit, pitch_type) %>%
+  summarise(mean_speed = mean(release_speed, na.rm=TRUE))
+
+ggplot(fastballs, aes(x=age_pit, 
+                      y=mean_speed)) +
+  geom_point(alpha = .5, 
+             size = 2) + 
+  geom_smooth(aes(color=pitch_type),
+              se=FALSE) +
+  facet_wrap(.~pitch_type, 
+             nrow = 3) +
+  force_panelsizes(rows = unit(5, "cm")) +
+  labs(x = "Age", 
+       y = "Average Pitch Speed (mph)", 
+       color = "Pitch Type", 
+       title = "Average Speed for Fastball Types at Each Recorded Age") + 
+  theme(strip.text = element_blank(),
+        strip.background = element_blank(),
+        panel.background= element_rect(fill="gray89"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black",
+                                    fill = NA,
+                                    linewidth = 1)
+  ) 
+```
+
+
+Outcomes of each pitch data cleaning:
+```{r}
+pitch_type_outcomes <- statcast_clean %>%
+  select(pitch_type, events) %>%
+  filter(pitch_type == "CH"| pitch_type == "CU"| pitch_type == "FF"| pitch_type == "SI"| pitch_type == "SL"| pitch_type == "FC"| pitch_type == "ST"| pitch_type == "KC" | pitch_type == "FS") %>%
+    filter(!is.na(events)) %>%
+    mutate(outcome = case_when(
+    events == "double" | events == "triple" | events == "home_run" ~ "XBH",
+    events == "grounded_into_double_play" | events == "strikeout_double_play" | events == "double_play" | events == "sac_fly_double_play" | events == "triple_play" | events == "sac_bunt_double_play" ~ "Double/Triple Play",
+    events == "field_out" | events == "force_out" | events == "fielders_choice" | events == "fielders_choice_out" ~ "Field Out",
+    events == "strikeout" ~ "K",
+    events == "single" ~ "Single",
+    events == "walk" | events == "hit_by_pitch" ~ "Walk/HBP",
+    events == "catcher_interf"  | events == "truncated_pa" | events == "sac_bunt" | events == "sac_fly" | events == "field_error" ~ "Other"
+     )) %>%
+  group_by(outcome, pitch_type) %>%
+  summarize(count = n(), .groups = "drop_last") %>%
+  mutate(prop = count / sum(count)) %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SL" = "Slider",
+                             "CH" = "Changeup",
+                             "CU" = "Curveball",
+                             "SI" = "2-Seam",
+                             "KC"= "Knuckle Curve",
+                             "FC" = "Cutter",
+                             "ST" = "Sweeper",
+                             "FS" = "Splitter")) %>%
+  mutate(pitch_type = factor(pitch_type, levels = c(
+    "4-Seam", "2-Seam", "Cutter", "Splitter", "Changeup", "Slider", "Sweeper", "Knuckle Curve", "Curveball"
+  )))
+```
+
+Outcomes of each pitch visualization:
+```{r}
+ggplot(pitch_type_outcomes, aes(x="", y=prop, fill=pitch_type)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) + 
+  facet_wrap(~outcome) +
+  theme(strip.background = element_blank(),
+        panel.background= element_rect(fill="gray89"),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black",
+                                    fill = NA,
+                                    linewidth = 1),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()
+  ) +
+  labs(x = NULL, y = NULL, title = "Plate Appearance Outcomes by Pitch Type", fill = "PA Outcome")
+
+counts <- statcast_clean %>%
+  select(pitch_type) %>%
+  filter(pitch_type == "CH"| pitch_type == "CU"| pitch_type == "FF"| pitch_type == "SI"| pitch_type == "SL"| pitch_type == "FC"| pitch_type == "ST"| pitch_type == "KC" | pitch_type == "FS") %>%
+  group_by(pitch_type) %>%
+  summarize(count=n()) %>%
+  mutate(prop = count/sum(count)) %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SL" = "Slider",
+                             "CH" = "Changeup",
+                             "CU" = "Curveball",
+                             "SI" = "2-Seam",
+                             "KC"= "Knuckle Curve",
+                             "FC" = "Cutter",
+                             "ST" = "Sweeper",
+                             "FS" = "Splitter")) %>%
+  mutate(pitch_type = factor(pitch_type, levels = c(
+    "4-Seam", "2-Seam", "Cutter", "Splitter", "Changeup", "Slider", "Sweeper", "Knuckle Curve", "Curveball"
+  )))
+
+ggplot(counts, aes(x="", y=prop, fill=pitch_type)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  geom_label(data = counts, aes(y=prop, x=1.6, label=scales::percent(prop, accuracy = 0.1), color = pitch_type),
+             fill = "white",
+             show.legend = FALSE,
+             position = position_stack(vjust = .5)) +
+  coord_polar("y", start=0) +
+  theme(panel.grid = element_blank(),
+        panel.border = element_rect(color = "black",
+                                    fill = NA,
+                                    linewidth = 1),
+        strip.background = element_blank(),
+        panel.background= element_rect(fill="gray89"),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  labs(x = NULL, y = NULL)
+```
+
+
+
