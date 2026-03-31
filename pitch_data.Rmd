@@ -33,14 +33,35 @@ library(readr)
 #### Statcast Pitch Data
 Statcast makes pitch data available via either a public API or a search page. A community-developed R package called "baseballr" provides functions to search the API from within an R script. API queries are limited to 25000 observations, much less than are found in a given season. This mean that many queries had to be performed and combined. The general script used to collect this data is provided here:
 ```{r, eval=FALSE}
-for(year in 2017:2025){
-  start_date = sprintf("%d-03-01", year)
-  end_date = sprintf("%d-11-01", year)
-  statcast <- statcast_search_pitchers(start_date = start_date, end_date = date(start_date) + 7)
+for(year in 2023:2025){
+  if (year == 2020){
+    start_date = sprintf("2020-07-23")
+    end_date = sprintf("2020-10-27")
+  }
+  else if (year == 2022){
+    start_date = sprintf("2022-04-07")
+    end_date = sprintf("2022-11-05")
+  } else {
+    start_date = sprintf("%d-03-01", year)
+    end_date = sprintf("%d-11-01", year)
+  }
+  statcast <- statcast_search_pitchers(start_date = start_date, end_date = date(start_date) + 5)
   last_max = max(statcast$game_date)
+  go_next=FALSE
   while(max(statcast$game_date) < date(end_date)){
     print(max(statcast$game_date))
-    statcast <- rbind(statcast, statcast_search_pitchers(start_date=(max(statcast$game_date)+1), end_date=(max(statcast$game_date) + 8)))
+    tryCatch({
+      statcast <- rbind(statcast, statcast_search_pitchers(start_date=(max(statcast$game_date)+1), end_date=(max(statcast$game_date) + 5)))
+    }, error = function(e)
+    {
+      cat("An error occured: ", conditionMessage(e), "\n")
+      Sys.sleep(10) # Wait 10 seconds then try again
+      go_next = TRUE
+    })
+    if (go_next==TRUE){
+      go_next=FALSE
+      next
+    }
     if(max(statcast$game_date) == last_max){
       print("No more games found")
       break
@@ -51,6 +72,7 @@ for(year in 2017:2025){
   write_csv(statcast, sprintf("statcast_%d.csv", year))
 }
 ```
+
 There were some errors with this script that required manual intervention, particularly in the years 2020 and 2022. In 2020 the COVID-19 pandemic resulted in a shortened season with a delayed start, and in 2022 the MLB lockout from ongoing labor negotiations resulted in a delayed season start. For these reasons, data from these years has not yet been collected, and will require a more manual approach. Data for each year is saved in its own csv file with the name statcast_<year>.csv
 
 #### FanGraphs Data
