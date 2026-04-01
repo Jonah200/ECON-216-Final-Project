@@ -304,3 +304,12 @@ ggplot(pitch_outcomes_with_pitch_types, aes(x="", y=prop, fill=outcome)) +
 
 
 
+
+```{r}
+
+
+
+
+
+```
+
