@@ -1,0 +1,53 @@
+---
+title: "Fangraphs Visualizations"
+author: "jbl113"
+date: "2026-03-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(baseballr)
+library(knitr)
+library(readr)
+library(ggrepel)
+library(scales)
+```
+
+## Data Preparation
+### Load the Dataset
+```{r}
+fangraphs <- read_csv("fangraphs.csv")
+```
+
+
+
+
+# TESTING
+```{r}
+pfx_usage_long <- fangraphs %>%
+  pivot_longer(
+    cols = matches("^pfx[A-Z]{2}%$"),
+    names_to = "pitch_type",
+    values_to = "usage_pct"
+  ) %>%
+  mutate(pitch_type = str_replace(pitch_type, "pfx([A-Z]{2})%", "\\1"))
+
+player <- pfx_usage_long %>%
+  filter(PlayerNameRoute=="Trevor May") %>%
+  drop_na(usage_pct)
+
+player %>%
+  ggplot(aes(x=Season, y=usage_pct, fill=pitch_type)) +
+  geom_area()
+```
+
+```{r}
+fangraphs %>%
+  ggplot(aes(x=Season,y=`pfxST%`, color=xMLBAMID)) +
+  geom_line(na.rm=TRUE)
+```

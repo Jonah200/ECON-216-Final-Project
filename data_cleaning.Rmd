@@ -15,19 +15,38 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(knitr)
 library(readr)
-library(ggh4x)
 library(ggrepel)
 library(sf)
+library(scales)
+library(ggh4x)
 ```
 
 Load Data:
 ```{r}
-statcast <- read_csv("statcast.csv")
+statcast <- read_csv("statcast_2017.csv") %>%
+  rbind(read_csv("statcast_2018.csv")) %>%
+  rbind(read_csv("statcast_2019.csv")) %>%
+  rbind(read_csv("statcast_2020.csv")) %>%
+  rbind(read_csv("statcast_2021.csv")) %>%
+  rbind(read_csv("statcast_2022.csv")) %>%
+  rbind(read_csv("statcast_2023.csv")) %>%
+  rbind(read_csv("statcast_2024.csv")) %>%
+  rbind(read_csv("statcast_2025.csv"))
 ```
 
 Save Combined Data:
 ```{r}
-write_csv(statcast, "statcast.csv")
+write_csv(statcast, "statcast_full.csv")
+```
+
+Read Combined Data:
+```{r}
+statcast <- read_csv("statcast_full.csv")
+```
+
+Read FanGraphs Data:
+```{r}
+fangraphs <- read_csv("fangraphs.csv")
 ```
 
 Remove Unneeded Cols:
@@ -43,13 +62,343 @@ statcast_clean <- statcast %>%
   select(-age_pit_legacy, -age_bat_legacy) %>%
   select(-matches("api_.*")) %>%
   select(-woba_value, -woba_denom) %>%
-  select(-sz_top,-sz_bot) %>%
   select(-matches(".*score.*"))
   
 statcast_clean <- statcast_clean %>%
   drop_na(pitch_type) %>%
   filter(game_type=="R")
 #write_csv(statcast_clean, "statcast_clean.csv")
+```
+
+Format Columns Where Needed:
+```{r}
+statcast_clean <- statcast_clean %>%
+  mutate(pitch_type = as.factor(pitch_type)) %>%
+  mutate(description = as.factor(description)) %>%
+  mutate(zone = as.factor(zone)) %>%
+  mutate(p_throws = as.factor(p_throws))
+```
+
+Cleanup Fangraphs Data:
+```{r}
+fangraphs_clean <- fangraphs %>%
+  select(-"...1")
+```
+Pitch Colors:
+```{r}
+pitch_levels <- statcast_clean$pitch_name %>%
+  unique() %>%
+  sort()
+
+statcast_clean <- statcast_clean %>%
+  mutate(pitch_name = factor(pitch_name, levels = pitch_levels))
+
+pitch_colors <- setNames(
+  hue_pal()(length(pitch_levels)),
+  pitch_levels
+)
+```
+
+Where pitches appear in zone: TODO
+```{r}
+statcast_clean %>%
+  drop_na(plate_x, plate_z) %>%
+  filter(pitch_type %in% c("FF", "FT", "FC", "FS", "SI", "CU", "SL", "CH", "KC")) %>%
+  mutate(plate_x_in = 12 * plate_x, plate_z_in = 12 *plate_z) %>%
+  ggplot(aes(x=plate_x_in, y=plate_z_in, color=pitch_type)) +
+  geom_vline(xintercept = 7.5) +
+  geom_vline(xintercept = -7.5) +
+  geom_hline(yintercept = mean(statcast_clean$sz_bot, na.rm=TRUE)*12) +
+  geom_hline(yintercept = mean(statcast_clean$sz_top, na.rm=TRUE)*12) +
+  stat_ellipse(type="t", level=0.8) +
+  facet_wrap(~p_throws) +
+  scale_x_continuous(limits = c(-25,25),
+                              breaks = seq(-25,25, 5),
+                              labels = scales::number_format(suffix = "\"")) + 
+  scale_y_continuous(limits = c(0,50),
+                              breaks = seq(0,50, 5),
+                              labels = scales::number_format(suffix = "\"")) +
+  coord_equal() + 
+  labs(title = "Pitch Locations At Plate",
+       subtitle = "2017-2025 (ex 2020, 2022) Regular Seasons | Catcher's Perspective",
+       caption = "Data: Baseball Savant via baseballr",
+       x = "Distance from Center of Plate",
+       y = "Height off Ground",
+       color = "Pitch Type") +
+  scale_color_manual(values = pitch_colors,
+                     limits = pitch_levels)
+```
+
+Pitch Break:
+```{r}
+centers <- statcast_clean %>%
+  filter(pitch_type %in% c("FF", "FT", "FC", "FS", "SI", "CU", "SL", "CH", "KC", "ST")) %>%
+  group_by(pitch_type, pitch_name, p_throws) %>%
+  summarise(
+    x = mean(pfx_x, na.rm = TRUE)*12,
+    y = mean(pfx_z, na.rm = TRUE)*12,
+    .groups = "drop"
+  )
+
+statcast_clean %>%
+  drop_na(pfx_x, pfx_z) %>%
+  filter(pitch_type %in% c("FF", "FT", "FC", "FS", "SI", "CU", "SL", "CH", "KC", "ST")) %>%
+  mutate(pfx_x_in = 12 * pfx_x, pfx_z_in = 12 * pfx_z) %>%
+  ggplot(aes(x=pfx_x_in, y=pfx_z_in, color=pitch_name)) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  stat_ellipse(type="t", linetype=2, level=0.9) +
+  geom_label_repel(data = centers,
+            aes(x = x, y = y, label = pitch_name, color=pitch_name),
+            size=2,
+            show.legend = FALSE) +
+  facet_wrap(~p_throws) +
+  scale_x_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  scale_y_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  coord_equal() +
+  theme_bw() +
+  labs(title="Induced Movement of MLB Pitches by Pitch Type",
+       subtitle = "Catcher's Perspective | Grouped by Pitcher Throwing Arm",
+       x="Horizontal Movement",
+       y="Induced Vertical Break",
+       caption="Data Source: Statcast via baseballr",
+       color="Pitch Type") +
+  scale_color_manual(values = pitch_colors,
+                     limits = pitch_levels)
+  
+```
+
+
+```{r}
+centers_sl_st <- statcast_clean %>%
+  filter(pitch_type %in% c("SL", "ST")) %>%
+  group_by(pitch_type, pitch_name, p_throws) %>%
+  summarise(
+    x = mean(pfx_x, na.rm = TRUE)*12,
+    y = mean(pfx_z, na.rm = TRUE)*12,
+    .groups = "drop"
+  )
+
+statcast_clean %>%
+  drop_na(pfx_x, pfx_z) %>%
+  filter(pitch_type %in% c("SL", "ST")) %>%
+  mutate(pfx_x_in = 12 * pfx_x, pfx_z_in = 12 * pfx_z) %>%
+  ggplot(aes(x=pfx_x_in, y=pfx_z_in, color=pitch_name)) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  stat_ellipse(type="t", linetype=2, level=0.9) +
+  geom_label_repel(data = centers_sl_st,
+            aes(x = x, y = y, label = pitch_name, color=pitch_name),
+            size=2,
+            show.legend = FALSE) +
+  facet_wrap(~p_throws) +
+  scale_x_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  scale_y_continuous(limits=c(-20,20),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  theme_bw() +
+  labs(title="Induced Movement of Sliders and Sweepers",
+       subtitle = "Catcher's Perspective | Grouped by Pitcher Throwing Arm",
+       x="Horizontal Movement",
+       y="Induced Vertical Break",
+       caption="Data Source: Statcast via baseballr",
+       color="Pitch Type") +
+  scale_color_manual(values = pitch_colors,
+                     limits = c("Sweeper", "Slider"))
+```
+
+
+```{r}
+spin_and_speed <- statcast_clean %>%
+  filter(pitch_type %in% c("SL", "ST")) %>%
+  drop_na(release_speed, release_spin_rate) %>%
+  group_by(pitch_name, game_year) %>%
+  summarise(avg_spin = mean(release_spin_rate), avg_speed = mean(release_speed), .groups = "drop") %>%
+  pivot_longer(cols = c(avg_speed, avg_spin), names_to="metric") %>%
+  complete(pitch_name = c("Slider", "Sweeper"), metric, game_year = full_seq(game_year, 1))
+
+mean_spin_and_speed <- spin_and_speed %>%
+  group_by(metric, pitch_name) %>%
+  summarise(mean_value = mean(value, na.rm=TRUE), .groups="drop")
+
+spin_and_speed %>%
+  ggplot(aes(x=game_year, y=value, color=pitch_name)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(data=mean_spin_and_speed,
+            aes(yintercept=mean_value, color=pitch_name),
+            linetype="dashed",
+            linewidth = 1) +
+  facet_wrap(~ metric, 
+             scales = "free_y",
+             labeller = labeller(
+               metric = c(
+                 avg_speed = "Average Release Speed (mph)",
+                 avg_spin = "Average Spin Rate (rpm)"
+               )
+             )) +
+  theme_bw() +
+  labs(title="Spin Rate and Release Speed Comparison",
+       subtitle = "Sliders vs Sweepers",
+       caption="Data Source: Statcast via baseballr",
+       x="Year",
+       y="Speed/Spin Rate",
+       color="Pitch Type") +
+  scale_color_manual(values = pitch_colors,
+                     limits = c("Sweeper", "Slider"))
+  
+```
+
+
+```{r}
+centers_sl_year <- statcast_clean %>%
+  filter(pitch_type %in% c("FF")) %>%
+  group_by(game_year, p_throws) %>%
+  summarise(
+    x = mean(pfx_x, na.rm = TRUE)*12,
+    y = mean(pfx_z, na.rm = TRUE)*12,
+    .groups = "drop"
+  )
+
+statcast_clean %>%
+  drop_na(pfx_x, pfx_z) %>%
+  filter(pitch_type %in% c("FF")) %>%
+  mutate(pfx_x_in = 12 * pfx_x, pfx_z_in = 12 * pfx_z) %>%
+  ggplot(aes(x=pfx_x_in, y=pfx_z_in, color=as.factor(home_team))) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  stat_ellipse(type="t", linetype=2, level=0.9) +
+  #geom_label(data = centers_sl_year,
+  #          aes(x = x, y = y, label = as.factor(game_year), color=as.factor(game_year)),
+  #          size=2,
+  #          show.legend = FALSE) +
+  facet_wrap(~p_throws) +
+  scale_x_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  scale_y_continuous(limits=c(-20,20),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  coord_equal() +
+  theme_bw()
+```
+
+Pitch Spin: TODO
+```{r}
+statcast_sample <- statcast_clean %>%
+  slice_sample(prop=0.1)
+
+statcast_sample %>%
+  filter(pitch_type %in% c("SL","ST")) %>%
+  drop_na(spin_axis) %>%
+  mutate(clock_pos = spin_axis/30) %>%
+  ggplot(aes(x=clock_pos, fill=pitch_type)) +
+  geom_histogram(bins=12) +
+  facet_wrap(~p_throws) +
+  scale_color_manual(values = pitch_colors,
+                     limits = c("SL", "ST")) +
+  coord_polar() +
+  scale_x_continuous(limits = c(1,12))
+```
+
+Pitch Mix (from Statcast Data): TODO
+```{r}
+pitch_props <- statcast_clean %>%
+  group_by(game_year, pitch_name, pitch_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(game_year) %>%
+  mutate(prop = n/sum(n)) %>%
+  filter(pitch_type %in% c("FF", "FT", "FC", "FS", "SI", "CU", "SL", "CH", "KC", "ST"))
+
+pitch_props %>%
+  ggplot(aes(x=game_year, y=prop, fill=pitch_name)) +
+  geom_area(aes(fill=pitch_name)) +
+  geom_label(data = filter(pitch_props, pitch_type %in% c("ST", "SL", "SI"), game_year %in% c(2017,2019,2021,2023,2025)), aes(label=scales::percent(prop, accuracy = 0.1), color=pitch_name),
+                    position = position_stack(vjust=0.5),
+                    size=3,
+                    fill = "white",
+                    show.legend = FALSE) +
+  scale_color_manual(values = pitch_colors) +
+  theme_bw() +
+  labs(title="Evolution of Pitch Mix",
+       subtitle="Statcast Dataset",
+       x="Season",
+       y="Proportion",
+       fill="Pitch Type") +
+  scale_x_continuous(limits=c(2017,2025),
+                     breaks=seq(2017,2025,1))
+```
+
+```{r}
+pitcher_year <- statcast_clean %>%
+  group_by(player_name, game_year, pitch_name) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(player_name, game_year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+wide_pitcher <- pitcher_year %>%
+  select(player_name, game_year, pitch_name, prop) %>%
+  pivot_wider(names_from = pitch_name, values_from = prop, values_fill = 0)
+
+wide_pitcher <- wide_pitcher %>%
+  arrange(player_name, game_year) %>%
+  group_by(player_name) %>%
+  mutate(
+    d_sweeper = Sweeper - lag(Sweeper),
+    d_sinker  = Sinker  - lag(Sinker),
+    d_slider  = Slider  - lag(Slider)) %>%
+  ungroup()
+
+cor(wide_pitcher$d_sweeper, wide_pitcher$d_sinker, use = "complete.obs")
+cor(wide_pitcher$d_sweeper, wide_pitcher$d_slider, use = "complete.obs")
+```
+
+Statcast with FG:
+```{r}
+statcast_fg <- statcast_clean %>%
+  right_join(fangraphs, by = join_by(pitcher == xMLBAMID, game_year == Season))
+```
+
+```{r}
+test <- statcast_fg %>%
+  filter(pitch_type=="SL") %>%
+  group_by(game_year, pitcher) %>%
+  summarise(
+    sp_s_SL = first(sp_s_SL),
+    p_throws = first(p_throws),
+    n = n(),
+    .groups="drop"
+  ) %>%
+  filter(n > 100) %>%
+  group_by(game_year, p_throws) %>%
+  mutate(
+    tier = as.factor(case_when(
+      sp_s_SL >= quantile(sp_s_SL, 0.9, na.rm = TRUE) ~ "Best",
+      sp_s_SL <= quantile(sp_s_SL, 0.1, na.rm = TRUE) ~ "Worst",
+      TRUE ~ "Middle"
+    ))
+  ) %>%
+  inner_join(statcast_clean, by=c("game_year", "pitcher")) %>%
+  filter(pitch_type == "SL",tier %in% c("Best", "Worst"))
+
+test %>%
+  ggplot(aes(x=pfx_x*12, pfx_z*12, color=tier)) +
+  stat_ellipse() +
+  facet_wrap(~p_throws.y) +
+  scale_x_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  scale_y_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  coord_equal()
 ```
 
 Fastball speed by age:
@@ -189,7 +538,6 @@ ggplot(counts, aes(x="", y=prop, fill=pitch_type)) +
   labs(x = NULL, y = NULL)
 ```
 
-
 Specific counts:
 ```{r}
 specific_counts <- statcast_clean %>%
@@ -300,7 +648,6 @@ ggplot(pitch_outcomes_with_pitch_types, aes(x="", y=prop, fill=outcome)) +
         axis.text = element_blank(),
         axis.ticks = element_blank()) +
   labs(x = NULL, y = NULL)
-
 ```
 
 
@@ -410,8 +757,3 @@ ggplot(areas_with_data) +
   scale_fill_viridis_c(option = "mako", name = "Pitch %", na.value = "grey90", direction = -1) +
   facet_wrap(~pitch_type)
 ```
-
-
-
-
-
