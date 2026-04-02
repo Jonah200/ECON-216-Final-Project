@@ -17,6 +17,7 @@ library(knitr)
 library(readr)
 library(ggh4x)
 library(ggrepel)
+library(sf)
 ```
 
 Load Data:
@@ -301,6 +302,116 @@ ggplot(pitch_outcomes_with_pitch_types, aes(x="", y=prop, fill=outcome)) +
   labs(x = NULL, y = NULL)
 
 ```
+
+
+
+Statcast zones for right-handed pitchers:
+```{r}
+zone1coords <- matrix(c(-17/2,17/2, -17/6,17/2, -17/6,17/6, -17/2,17/6, -17/2,17/2),
+                      ncol = 2,
+                      byrow= TRUE)
+zone2coords <- matrix(c(-17/6,17/2, 17/6,17/2, 17/6,17/6, -17/6,17/6, -17/6,17/2),
+                      ncol = 2,
+                      byrow=TRUE)
+zone3coords <- matrix(c(17/6,17/2, 17/2,17/2, 17/2,17/6, 17/6,17/6, 17/6,17/2),
+                      ncol = 2,
+                      byrow=TRUE)
+zone4coords <- matrix(c(-17/2,17/6, -17/6,17/6, -17/6,-17/6, -17/2,-17/6, -17/2,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone5coords <- matrix(c(-17/6,17/6, 17/6,17/6, 17/6,-17/6, -17/6,-17/6, -17/6,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone6coords <- matrix(c(17/6,17/6, 17/2,17/6, 17/2,-17/6, 17/6,-17/6, 17/6,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone7coords <- matrix(c(-17/2,-17/6, -17/6,-17/6, -17/6,-17/2, -17/2,-17/2, -17/2,-17/6),
+                      ncol = 2,
+                      byrow= TRUE)
+zone8coords <- matrix(c(-17/6,-17/6, 17/6,-17/6, 17/6,-17/2, -17/6,-17/2, -17/6,-17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone9coords <- matrix(c(17/6,-17/6, 17/2,-17/6, 17/2,-17/2, 17/6,-17/2, 17/6,-17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone11coords <- matrix(c(0,17/2, -17/2,17/2, -17/2,0, -12.3,0, -12.3,12.3, 0,12.3, 0,17/2),
+                       ncol=2,
+                       byrow=TRUE)
+zone12coords <- matrix(c(0,17/2, 17/2,17/2, 17/2,0, 12.3,0, 12.3,12.3, 0,12.3, 0,17/2),
+                       ncol=2,
+                       byrow=TRUE)
+zone13coords <- matrix(c(17/2,0, 12.3,0, 12.3,-12.3, 0,-12.3, 0,-17/2, 17/2,-17/2, 17/2, 0),
+                       ncol=2,
+                       byrow=TRUE)
+zone14coords <- matrix(c(0,-17/2, 0,-12.3, -12.3,-12.3, -12.3,0, -17/2,0, -17/2,-17/2, 0,-17/2),
+                       ncol=2,
+                       byrow=TRUE)
+
+zones <- st_sfc(st_polygon(list(zone1coords)), 
+                st_polygon(list(zone2coords)),
+                st_polygon(list(zone3coords)),
+                st_polygon(list(zone4coords)),
+                st_polygon(list(zone5coords)),
+                st_polygon(list(zone6coords)),
+                st_polygon(list(zone7coords)),
+                st_polygon(list(zone8coords)),
+                st_polygon(list(zone9coords)),
+                st_polygon(list(zone11coords)),
+                st_polygon(list(zone12coords)),
+                st_polygon(list(zone13coords)),
+                st_polygon(list(zone14coords)))
+areas <- st_sf(
+  Strike_Zone = c("Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6", "Zone 7", "Zone 8", "Zone 9", "Zone 11", "Zone 12", "Zone 13", "Zone 14"),
+  geometry = zones
+)
+
+strike_zone_data <- statcast_clean %>%
+  select(pitch_type, zone, p_throws) %>%
+  filter(p_throws == "R") %>%
+    filter(pitch_type == "CH"| pitch_type == "CU"| pitch_type == "FF"| pitch_type == "SI"| pitch_type == "SL"| pitch_type == "FC"| pitch_type == "ST"| pitch_type == "KC" | pitch_type == "FS") %>%
+  filter(!is.na(zone)) %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SL" = "Slider",
+                             "CH" = "Changeup",
+                             "CU" = "Curveball",
+                             "SI" = "2-Seam",
+                             "KC"= "Knuckle Curve",
+                             "FC" = "Cutter",
+                             "ST" = "Sweeper",
+                             "FS" = "Splitter")) %>%
+  mutate(Strike_Zone = recode(zone,
+                       "1" = "Zone 1",
+                       "2" = "Zone 2",
+                       "3" = "Zone 3",
+                       "4" = "Zone 4",
+                       "5" = "Zone 5",
+                       "6" = "Zone 6",
+                       "7" = "Zone 7",
+                       "8" = "Zone 8",
+                       "9" = "Zone 9",
+                       "11" = "Zone 11",
+                       "12" = "Zone 12",
+                       "13" = "Zone 13",
+                       "14" = "Zone 14")) %>%
+  group_by(pitch_type, Strike_Zone) %>%
+  summarize(count=n()) %>%
+  mutate(percent = count/sum(count)*100)
+
+print(areas)
+plot(areas["Strike_Zone"], col = NA)
+
+areas_with_data <- areas %>%
+  left_join(strike_zone_data, by = "Strike_Zone") %>%
+  group_by(pitch_type, Strike_Zone)
+
+ggplot(areas_with_data) + 
+  geom_sf(aes(fill=percent), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "mako", name = "Pitch %", na.value = "grey90", direction = -1) +
+  facet_wrap(~pitch_type)
+```
+
+
 
 
 
