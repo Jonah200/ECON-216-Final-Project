@@ -228,6 +228,7 @@ ggplot(fastballs, aes(x=age_pit,
         ) + 
     theme_bw()
 ```
+After the pitch mix and movement comes the pitch speed by age. Speed is another main characteristic of a pitch that is, to some, the most important feature. Some pitches are known for their high speeds, such as the 4-seam fastball and the cutter, while others have notably lower speeds but more ball movement, such as the slider and the curveball. Measuring the progression of a pitch's speed over time is also quite important, as pitchers are seen to throw slower over time, likely due to age and injury. This graphic is important to include in the final project as speed is one of the most important measures when categorizing and understanding different pitch types.
 
 ### Specific Counts vs. Pitch Types
 ```{r}
@@ -263,6 +264,7 @@ ggplot(specific_counts, aes(x="", y=prop, fill=pitch_type)) +
        fill = "Pitch Type")
 
 ```
+Different counts also play into the type of pitch that pitchers throw. If a pitcher is ahead in the count, they have the ability to be more aggressive and throw, for example, a slider outside of the zone to make a batter swing and miss. Pitchers favor pitches with different speeds or movement patterns based on the count they are in, which can be seen in the pie charts corresponding to the counts. This visual was necessary because it informs viewers of the different pitch mix that, on average, exists at every point in a plate appearance, which can differ due to a pitcher's strategy or the expected actions of a batter.
 
 ### RHP Relative Zone Location by Pitch Type
 ```{r}
@@ -489,3 +491,5 @@ ggplot(areas_with_data) +
   labs(title = "Location of Each Pitch Type for Left-Handed Pitchers",
        caption="Data Source: Statcast via baseballr")
 ```
+
+Lastly, these visualizations show us where all of these pitches actually end up in the strike zone, which can be influenced by the aforementioned factors of speed and movement. The location of the pitches, both in and out of the strikezone, is important to visualize because we can infer a pitcher's intent from a pitch type's most frequent locations. For example, a slider that is low and away is likely attempting to get a batter to chase, while an up-and-in fastball is trying to set up another pitch or cause a swinging strike. This model was very important to include as the final location of pitches simply shows the pitchers' behavioral and/or strategic patterns when it comes to throwing a specific type of pitch.
