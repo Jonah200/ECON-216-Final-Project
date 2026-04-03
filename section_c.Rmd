@@ -70,15 +70,15 @@ statcast_clean <- statcast_clean %>%
 ### Assigning Colors to Pitches
 ```{r}
 pitch_type_colors <- c(
-  "4-Seam" = "#8B2323",
-  "2-Seam" = "#FF3030",
-  "Cutter" = "#CD6839",
-  "Splitter" = "#FA8072",
-  "Changeup" = "#97FFFF",
-  "Knuckle Curve" = "#00B2EE",
-  "Curveball" = "#4F94CD",
-  "Slider" = "#3A5FCD",
-  "Sweeper" = "#473C8B")
+  "4-Seam" = "#BD1900",
+  "2-Seam" = "#F02000",
+  "Cutter" = "#FF6D57",
+  "Splitter" = "#FF9A8A",
+  "Changeup" = "#9DE3B6",
+  "Knuckle Curve" = "#4ECC7A",
+  "Curveball" = "#34B360",
+  "Slider" = "#288C48",
+  "Sweeper" = "#1D6436")
 ```
 
 ## Plots
@@ -169,7 +169,7 @@ statcast_clean %>%
   ggplot(aes(x=pfx_x_in, y=pfx_z_in, color=pitch_type)) +
   geom_hline(yintercept=0) +
   geom_vline(xintercept=0) +
-  stat_ellipse(type="t", linetype=2, level=0.9) +
+  stat_ellipse(type="t", linetype=2, level=0.9, linewidth =.5) +
   geom_label_repel(data = centers,
             aes(x = x, y = y, label = pitch_type, color=pitch_type),
             size=2,
