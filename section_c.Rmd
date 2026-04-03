@@ -1,0 +1,491 @@
+---
+title: "Section C"
+output: html_document
+date: "2026-04-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Libraries & Data
+
+### Installing Libraries
+```{r}
+library(tidyverse)
+library(knitr)
+library(readr)
+library(ggrepel)
+library(sf)
+library(scales)
+library(ggh4x)
+```
+
+### Loading Data
+```{r}
+statcast <- read_csv("statcast_full.csv")
+```
+
+### Removing Unnecessary Columns
+```{r}
+statcast_clean <- statcast %>%
+  select(-matches(".*deprecated$"), -spin_dir, -umpire) %>% #Remove deprecated numbers
+  select(-matches("fielder_[0-9]")) %>% 
+  select(-matches("on_[1-3]b$")) %>%
+  select(-matches("[io]f_fielding_alignment")) %>%
+  select(-matches("delta_.*")) %>%
+  select(-matches("intercept_ball_.*")) %>%
+  select(-matches(".*_days_since_.*"), -matches(".*_days_until_.*")) %>%
+  select(-age_pit_legacy, -age_bat_legacy) %>%
+  select(-matches("api_.*")) %>%
+  select(-woba_value, -woba_denom) %>%
+  select(-matches(".*score.*"))
+  
+statcast_clean <- statcast_clean %>%
+  drop_na(pitch_type) %>%
+  filter(game_type=="R")
+```
+
+### Formatting Columns
+```{r}
+statcast_clean <- statcast_clean %>%
+  mutate(pitch_type = as.factor(pitch_type)) %>%
+  mutate(description = as.factor(description)) %>%
+  mutate(zone = as.factor(zone)) %>%
+  mutate(p_throws = as.factor(p_throws)) %>%
+  mutate(pitch_type = recode(pitch_type,
+                             "FF" = "4-Seam",
+                             "SI" = "2-Seam",
+                             "FC" = "Cutter",
+                             "FS" = "Splitter",
+                             "CH" = "Changeup",
+                             "KC"= "Knuckle Curve",
+                             "CU" = "Curveball",
+                             "SL" = "Slider",
+                             "ST" = "Sweeper"
+                             )) %>%
+  mutate(pitch_type = factor(pitch_type, levels = c(
+    "4-Seam", "2-Seam", "Cutter", "Splitter", "Changeup", "Knuckle Curve", "Curveball", "Slider", "Sweeper")))
+```
+
+### Assigning Colors to Pitches
+```{r}
+pitch_type_colors <- c(
+  "4-Seam" = "#8B2323",
+  "2-Seam" = "#FF3030",
+  "Cutter" = "#CD6839",
+  "Splitter" = "#FA8072",
+  "Changeup" = "#97FFFF",
+  "Knuckle Curve" = "#00B2EE",
+  "Curveball" = "#4F94CD",
+  "Slider" = "#3A5FCD",
+  "Sweeper" = "#473C8B")
+```
+
+## Plots
+
+### Pitch Mix
+```{r}
+pitch_props <- statcast_clean %>%
+  group_by(game_year, pitch_name, pitch_type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(game_year) %>%
+  mutate(prop = n/sum(n)) %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             ))
+pitch_props %>%
+  ggplot(aes(x=game_year, y=prop, fill=pitch_type)) +
+  geom_area(aes(fill=pitch_type)) +
+  geom_label(
+    aes(
+      label = ifelse(
+        pitch_type %in% c("Sweeper", "Slider", "2-Seam") & 
+        game_year %in% c(2017, 2019, 2021, 2023, 2025),
+        scales::percent(prop, accuracy = 0.1), 
+        NA 
+      ),
+      color = pitch_type
+    ),
+    position = position_stack(vjust = 0.5),
+    size = 3,
+    fill = "white",
+    show.legend = FALSE,
+    na.rm = TRUE 
+  ) +
+  scale_fill_manual(values = pitch_type_colors) +
+  scale_color_manual(values=pitch_type_colors) +
+  theme_bw() +
+  labs(title="Evolution of Pitch Mix",
+       subtitle = "MLB Pitchers in the 2017-2025 Regular Seasons",
+       x="Season",
+       y="Proportion",
+       fill="Pitch Type",
+       caption="Data Source: Statcast via baseballr"
+       ) +
+  scale_x_continuous(limits=c(2017,2025),
+                     breaks=seq(2017,2025,1))
+```
+
+### Pitch Break
+```{r}
+centers <- statcast_clean %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             )) %>%  
+  group_by(pitch_type, pitch_name, p_throws) %>%
+  summarise(
+    x = mean(pfx_x, na.rm = TRUE)*12,
+    y = mean(pfx_z, na.rm = TRUE)*12,
+    .groups = "drop"
+  )
+
+statcast_clean %>%
+  drop_na(pfx_x, pfx_z) %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             )) %>%  
+  mutate(pfx_x_in = 12 * pfx_x, pfx_z_in = 12 * pfx_z) %>%
+  ggplot(aes(x=pfx_x_in, y=pfx_z_in, color=pitch_type)) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  stat_ellipse(type="t", linetype=2, level=0.9) +
+  geom_label_repel(data = centers,
+            aes(x = x, y = y, label = pitch_type, color=pitch_type),
+            size=2,
+            show.legend = FALSE) +
+  facet_wrap(~p_throws) +
+  scale_x_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  scale_y_continuous(limits=c(-25,25),
+                     breaks = seq(-25,25,5),
+                     labels = scales::number_format(suffix = "\"")) +
+  coord_equal() +
+  theme_bw() +
+  labs(title="Induced Movement of MLB Pitches by Pitch Type",
+       subtitle = "Catcher's Perspective | Grouped by Pitcher Throwing Arm",
+       x="Horizontal Movement",
+       y="Induced Vertical Break",
+       caption="Data Source: Statcast via baseballr",
+       color="Pitch Type") +
+  scale_color_manual(values = pitch_type_colors)
+```
+
+### Pitch Speed by Age
+```{r}
+fastballs <- statcast_clean %>%
+  select(pitch_type, age_pit, release_speed, pitch_name) %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             )) %>%  
+  group_by(age_pit, pitch_type) %>%
+  summarise(mean_speed = mean(release_speed, na.rm=TRUE))
+
+ggplot(fastballs, aes(x=age_pit, 
+                      y=mean_speed,
+                      color = pitch_type)) +
+  geom_point(alpha = .5, 
+             size = 2,
+             color = "black") + 
+  geom_smooth(se=FALSE) +
+  facet_wrap(.~pitch_type, 
+             nrow = 3) +
+  scale_color_manual(values = pitch_type_colors) +
+  force_panelsizes(rows = unit(5, "cm")) +
+  labs(x = "Age", 
+       y = "Average Pitch Speed (mph)",
+       color = "Pitch Type", 
+       title = "Average Speed for Pitch Types at Each Recorded Age",
+       caption="Data Source: Statcast via baseballr"
+        ) + 
+    theme_bw()
+```
+
+### Specific Counts vs. Pitch Types
+```{r}
+specific_counts <- statcast_clean %>%
+  select(pitch_type, balls, strikes) %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             )) %>%    mutate(batting_count = paste(balls, strikes, sep = "-")) %>%
+  group_by(batting_count, pitch_type) %>%
+  summarize(count = n()) %>%
+  mutate(prop = count/sum(count))
+
+ggplot(specific_counts, aes(x="", y=prop, fill=pitch_type)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  facet_wrap(~batting_count, nrow=4) +
+  scale_fill_manual(values = pitch_type_colors) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.background= element_rect(fill="gray92")) +
+  labs(x = NULL, y = NULL,
+       caption="Data Source: Statcast via baseballr",
+       title = "Pitch Mix for Each Possible Count",
+       fill = "Pitch Type")
+
+```
+
+### RHP Relative Zone Location by Pitch Type
+```{r}
+zone1coords <- matrix(c(-17/2,17/2, -17/6,17/2, -17/6,17/6, -17/2,17/6, -17/2,17/2),
+                      ncol = 2,
+                      byrow= TRUE)
+zone2coords <- matrix(c(-17/6,17/2, 17/6,17/2, 17/6,17/6, -17/6,17/6, -17/6,17/2),
+                      ncol = 2,
+                      byrow=TRUE)
+zone3coords <- matrix(c(17/6,17/2, 17/2,17/2, 17/2,17/6, 17/6,17/6, 17/6,17/2),
+                      ncol = 2,
+                      byrow=TRUE)
+zone4coords <- matrix(c(-17/2,17/6, -17/6,17/6, -17/6,-17/6, -17/2,-17/6, -17/2,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone5coords <- matrix(c(-17/6,17/6, 17/6,17/6, 17/6,-17/6, -17/6,-17/6, -17/6,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone6coords <- matrix(c(17/6,17/6, 17/2,17/6, 17/2,-17/6, 17/6,-17/6, 17/6,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone7coords <- matrix(c(-17/2,-17/6, -17/6,-17/6, -17/6,-17/2, -17/2,-17/2, -17/2,-17/6),
+                      ncol = 2,
+                      byrow= TRUE)
+zone8coords <- matrix(c(-17/6,-17/6, 17/6,-17/6, 17/6,-17/2, -17/6,-17/2, -17/6,-17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone9coords <- matrix(c(17/6,-17/6, 17/2,-17/6, 17/2,-17/2, 17/6,-17/2, 17/6,-17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone11coords <- matrix(c(0,17/2, -17/2,17/2, -17/2,0, -12.3,0, -12.3,12.3, 0,12.3, 0,17/2),
+                       ncol=2,
+                       byrow=TRUE)
+zone12coords <- matrix(c(0,17/2, 17/2,17/2, 17/2,0, 12.3,0, 12.3,12.3, 0,12.3, 0,17/2),
+                       ncol=2,
+                       byrow=TRUE)
+zone13coords <- matrix(c(17/2,0, 12.3,0, 12.3,-12.3, 0,-12.3, 0,-17/2, 17/2,-17/2, 17/2, 0),
+                       ncol=2,
+                       byrow=TRUE)
+zone14coords <- matrix(c(0,-17/2, 0,-12.3, -12.3,-12.3, -12.3,0, -17/2,0, -17/2,-17/2, 0,-17/2),
+                       ncol=2,
+                       byrow=TRUE)
+
+zones <- st_sfc(st_polygon(list(zone1coords)), 
+                st_polygon(list(zone2coords)),
+                st_polygon(list(zone3coords)),
+                st_polygon(list(zone4coords)),
+                st_polygon(list(zone5coords)),
+                st_polygon(list(zone6coords)),
+                st_polygon(list(zone7coords)),
+                st_polygon(list(zone8coords)),
+                st_polygon(list(zone9coords)),
+                st_polygon(list(zone11coords)),
+                st_polygon(list(zone12coords)),
+                st_polygon(list(zone13coords)),
+                st_polygon(list(zone14coords)))
+areas <- st_sf(
+  Strike_Zone = c("Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6", "Zone 7", "Zone 8", "Zone 9", "Zone 11", "Zone 12", "Zone 13", "Zone 14"),
+  geometry = zones
+)
+
+strike_zone_data <- statcast_clean %>%
+  select(pitch_type, zone, p_throws) %>%
+  filter(p_throws == "R") %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             )) %>%
+  mutate(pitch_type = factor(pitch_type, levels = c(
+    "4-Seam", "2-Seam", "Cutter", "Splitter", "Changeup", "Knuckle Curve", "Curveball", "Slider", "Sweeper"))) %>%
+  filter(!is.na(zone)) %>%
+  mutate(Strike_Zone = recode(zone,
+                       "1" = "Zone 1",
+                       "2" = "Zone 2",
+                       "3" = "Zone 3",
+                       "4" = "Zone 4",
+                       "5" = "Zone 5",
+                       "6" = "Zone 6",
+                       "7" = "Zone 7",
+                       "8" = "Zone 8",
+                       "9" = "Zone 9",
+                       "11" = "Zone 11",
+                       "12" = "Zone 12",
+                       "13" = "Zone 13",
+                       "14" = "Zone 14")) %>%
+  group_by(pitch_type, Strike_Zone) %>%
+  summarize(count=n()) %>%
+  mutate(percent = count/sum(count)*100)
+
+print(areas)
+plot(areas["Strike_Zone"], col = NA)
+
+areas_with_data <- areas %>%
+  left_join(strike_zone_data, by = "Strike_Zone") %>%
+  group_by(pitch_type, Strike_Zone)
+
+ggplot(areas_with_data) + 
+  geom_sf(aes(fill=percent), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "mako", name = "Pitch %", na.value = "grey92", direction = -1) +
+  facet_wrap(~pitch_type) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank()) +
+  labs(title = "Location of Each Pitch Type for Right-Handed Pitchers",
+       caption="Data Source: Statcast via baseballr")
+```
+
+### LHP Relative Zone Location by Pitch Type
+```{r}
+zone1coords <- matrix(c(-17/2,17/2, -17/6,17/2, -17/6,17/6, -17/2,17/6, -17/2,17/2),
+                      ncol = 2,
+                      byrow= TRUE)
+zone2coords <- matrix(c(-17/6,17/2, 17/6,17/2, 17/6,17/6, -17/6,17/6, -17/6,17/2),
+                      ncol = 2,
+                      byrow=TRUE)
+zone3coords <- matrix(c(17/6,17/2, 17/2,17/2, 17/2,17/6, 17/6,17/6, 17/6,17/2),
+                      ncol = 2,
+                      byrow=TRUE)
+zone4coords <- matrix(c(-17/2,17/6, -17/6,17/6, -17/6,-17/6, -17/2,-17/6, -17/2,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone5coords <- matrix(c(-17/6,17/6, 17/6,17/6, 17/6,-17/6, -17/6,-17/6, -17/6,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone6coords <- matrix(c(17/6,17/6, 17/2,17/6, 17/2,-17/6, 17/6,-17/6, 17/6,17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone7coords <- matrix(c(-17/2,-17/6, -17/6,-17/6, -17/6,-17/2, -17/2,-17/2, -17/2,-17/6),
+                      ncol = 2,
+                      byrow= TRUE)
+zone8coords <- matrix(c(-17/6,-17/6, 17/6,-17/6, 17/6,-17/2, -17/6,-17/2, -17/6,-17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone9coords <- matrix(c(17/6,-17/6, 17/2,-17/6, 17/2,-17/2, 17/6,-17/2, 17/6,-17/6),
+                      ncol = 2,
+                      byrow=TRUE)
+zone11coords <- matrix(c(0,17/2, -17/2,17/2, -17/2,0, -12.3,0, -12.3,12.3, 0,12.3, 0,17/2),
+                       ncol=2,
+                       byrow=TRUE)
+zone12coords <- matrix(c(0,17/2, 17/2,17/2, 17/2,0, 12.3,0, 12.3,12.3, 0,12.3, 0,17/2),
+                       ncol=2,
+                       byrow=TRUE)
+zone13coords <- matrix(c(17/2,0, 12.3,0, 12.3,-12.3, 0,-12.3, 0,-17/2, 17/2,-17/2, 17/2, 0),
+                       ncol=2,
+                       byrow=TRUE)
+zone14coords <- matrix(c(0,-17/2, 0,-12.3, -12.3,-12.3, -12.3,0, -17/2,0, -17/2,-17/2, 0,-17/2),
+                       ncol=2,
+                       byrow=TRUE)
+
+zones <- st_sfc(st_polygon(list(zone1coords)), 
+                st_polygon(list(zone2coords)),
+                st_polygon(list(zone3coords)),
+                st_polygon(list(zone4coords)),
+                st_polygon(list(zone5coords)),
+                st_polygon(list(zone6coords)),
+                st_polygon(list(zone7coords)),
+                st_polygon(list(zone8coords)),
+                st_polygon(list(zone9coords)),
+                st_polygon(list(zone11coords)),
+                st_polygon(list(zone12coords)),
+                st_polygon(list(zone13coords)),
+                st_polygon(list(zone14coords)))
+areas <- st_sf(
+  Strike_Zone = c("Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6", "Zone 7", "Zone 8", "Zone 9", "Zone 11", "Zone 12", "Zone 13", "Zone 14"),
+  geometry = zones
+)
+
+strike_zone_data <- statcast_clean %>%
+  select(pitch_type, zone, p_throws) %>%
+  filter(p_throws == "L") %>%
+  filter(pitch_type %in% c("4-Seam",
+                             "2-Seam",
+                             "Cutter",
+                             "Splitter",
+                             "Changeup",
+                             "Knuckle Curve",
+                             "Curveball",
+                             "Slider",
+                             "Sweeper"
+                             )) %>%
+  mutate(pitch_type = factor(pitch_type, levels = c(
+    "4-Seam", "2-Seam", "Cutter", "Splitter", "Changeup", "Knuckle Curve", "Curveball", "Slider", "Sweeper"))) %>%
+  filter(!is.na(zone)) %>%
+  mutate(Strike_Zone = recode(zone,
+                       "1" = "Zone 1",
+                       "2" = "Zone 2",
+                       "3" = "Zone 3",
+                       "4" = "Zone 4",
+                       "5" = "Zone 5",
+                       "6" = "Zone 6",
+                       "7" = "Zone 7",
+                       "8" = "Zone 8",
+                       "9" = "Zone 9",
+                       "11" = "Zone 11",
+                       "12" = "Zone 12",
+                       "13" = "Zone 13",
+                       "14" = "Zone 14")) %>%
+  group_by(pitch_type, Strike_Zone) %>%
+  summarize(count=n()) %>%
+  mutate(percent = count/sum(count)*100)
+
+print(areas)
+plot(areas["Strike_Zone"], col = NA)
+
+areas_with_data <- areas %>%
+  left_join(strike_zone_data, by = "Strike_Zone") %>%
+  group_by(pitch_type, Strike_Zone)
+
+ggplot(areas_with_data) + 
+  geom_sf(aes(fill=percent), color = "white", size = 0.2) +
+  scale_fill_viridis_c(option = "mako", name = "Pitch %", na.value = "grey92", direction = -1) +
+  facet_wrap(~pitch_type) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank()) +
+  labs(title = "Location of Each Pitch Type for Left-Handed Pitchers",
+       caption="Data Source: Statcast via baseballr")
+```
